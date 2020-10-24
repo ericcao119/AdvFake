@@ -11,7 +11,8 @@ import os
 import random
 from os import listdir
 from os.path import isfile, join
-
+import json
+from config import FACE_BOXES_JSON, TEST_DATA_DIR, TRAIN_DATA_DIR
 
 from models.generator import Generator
 from models.discriminator import Discriminator
@@ -21,7 +22,6 @@ class ImageFolderWithPaths(datasets.ImageFolder):
     """Custom dataset that includes image file paths. Extends
     torchvision.datasets.ImageFolder
     """
-
     # override the __getitem__ method. this is the method that dataloader calls
     def __getitem__(self, index):
         # this is what ImageFolder normally returns
@@ -31,17 +31,30 @@ class ImageFolderWithPaths(datasets.ImageFolder):
         # make a new tuple that includes original and the path
         tuple_with_path = original_tuple + (path,)
 
-        # TODO Add alignments here
-        return tuple_with_path
+        last_slash = path.rindex('/')
+        base_path = path[:last_slash]
+
+        #Obtain alignments - requires the alignment json file located in {dfd,fs}_frames_centered_cropped to be put in path specified in config.py
+        with open(FACE_BOXES_JSON) as f:
+            data = json.load(f)
+        image_name = path.split('/')[-1]
+        x = data[image_name]['x']
+        y = data[image_name]['y']
+        h = data[image_name]['h']
+        w = data[image_name]['w']
+        align_tuple = (x,y,h,w)
+        tuple_with_path_alignment = tuple_with_path + (align_tuple,)
+
+
+        return
 
 
 # instantiate the dataset and dataloader
-data_dir = "your/data_dir/here"
-train_dataset = ImageFolderWithPaths(root="./data/train")  # our custom dataset
+train_dataset = ImageFolderWithPaths(root=TRAIN_DATA_DIR)  # our custom dataset
 dataloader = DataLoader(train_dataset, batch_size=64, num_workers=1, shuffle=True)
 
 test_dataset = torchvision.ImageFolderWithPaths(
-    root="./data/test", transform=torchvision.transforms.ToTensor()
+    root=TEST_DATA_DIR, transform=torchvision.transforms.ToTensor()
 )
 
 models_path = "./models/instances"
@@ -53,14 +66,15 @@ def swapfaces(original_image, base_image):
     """
 
 
-def cropped_image(original_image):
-    pass
+def cropped_image(original_image, image_name):
+    #TODO: Do we need to change this to a tensor?
+    return torch.from_numpy(v2.imread(BASE_IMAGE_DIR + image_name, cv2.IMREAD_UNCHANGED))
 
 
 def random_image(face):
     def training_set():
         # Get training data in sorted filepath form
-        train_path = "./data/train"
+        train_path = TRAIN_DATA_DIR
         data = sorted([f for f in listdir(train_path) if isfile(join(train_path, f))])
         return data
 
@@ -105,7 +119,7 @@ class AdvGAN_Attack:
 
     def train_batch(self, original_image):
         """x is the large not cropped face. TODO find a way to associate image with the image it came from (see if we can do it by filename)"""
-        x = cropped_image(original_image)  # TODO Crop a 256 x 256 square from the image
+        x = cropped_image(original_image, image_name)  # TODO pass image name
 
         # optimize D
         perturbation = self.netG(x)

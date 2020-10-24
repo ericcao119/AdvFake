@@ -1,13 +1,54 @@
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
+from torch.utils.data import DataLoader
 
 import numpy as np
 
 import torchvision
 import os
+import random
+from os import listdir
+from os.path import isfile, join
 
 
-models_path = './models/'
+from models.generator import Generator
+from models.discriminator import Discriminator
+
+models_path = './models/instances'
+
+train_dataset = torchvision.ImageFolder(
+    root='./data/train',
+    transform=torchvision.transforms.ToTensor()
+)
+train_loader = DataLoader(
+    train_dataset,
+    batch_size=64,
+    num_workers=1,
+    shuffle=True
+)
+
+test_dataset = torchvision.ImageFolder(
+    root='./data/test',
+    transform=torchvision.transforms.ToTensor()
+)
+
+
+def swapfaces(original_image, base_image):
+    """TODO create temporary folder for single input image. One for extracted faces, one for the image to patch, and one for the new complete output
+    Apply face to base_image with extract and convert from model
+    """
+
+def cropped_image(original_image):
+    pass
+
+def random_image(face):
+    def training_set():
+        # Get training data in sorted filepath form
+        train_path = './data/train'
+        data = sorted([f for f in listdir(train_path) if isfile(join(train_path, f))])
+        return data
+    return random.choice(training_set())
 
 
 # custom weights initialization called on netG and netD
@@ -20,50 +61,50 @@ def weights_init(m):
         nn.init.constant_(m.bias.data, 0)
 
 
-
 class AdvGAN_Attack:
     def __init__(self,
                  device,
                  model,
-                 model_num_labels,
                  image_nc,
                  box_min,
                  box_max):
         output_nc = image_nc
         self.device = device
-        self.model_num_labels = model_num_labels
         self.model = model
         self.input_nc = image_nc
         self.output_nc = output_nc
+        
         self.box_min = box_min
         self.box_max = box_max
 
         self.gen_input_nc = image_nc
-        self.netG = models.Generator(self.gen_input_nc, image_nc).to(device)
-        self.netDisc = models.Discriminator(image_nc).to(device)
+        self.netG = Generator(self.gen_input_nc, image_nc).to(device)
+        self.netDisc = Discriminator(image_nc).to(device)
 
         # initialize all weights
         self.netG.apply(weights_init)
         self.netDisc.apply(weights_init)
 
         # initialize optimizers
-        self.optimizer_G = torch.optim.Adam(self.netG.parameters(),
-                                            lr=0.001)
-        self.optimizer_D = torch.optim.Adam(self.netDisc.parameters(),
-                                            lr=0.001)
+        self.optimizer_G = torch.optim.Adam(self.netG.parameters(), lr=0.001)
+        self.optimizer_D = torch.optim.Adam(self.netDisc.parameters(), lr=0.001)
 
         if not os.path.exists(models_path):
             os.makedirs(models_path)
 
-    def train_batch(self, x, labels):
+    def train_batch(self, original_image):
+        """x is the large not cropped face. TODO find a way to associate image with the image it came from (see if we can do it by filename)"""
+        x = cropped_image(original_image)     # TODO Crop a 256 x 256 square from the image
+        
         # optimize D
+        perturbation = self.netG(x)
+        base_image = random_image()         # Image to apply face to
+        
+        # add a clipping trick
+        adv_images = torch.clamp(perturbation, -0.3, 0.3) + x
+        adv_images = torch.clamp(adv_images, self.box_min, self.box_max)
+        
         for i in range(1):
-            perturbation = self.netG(x)
-
-            # add a clipping trick
-            adv_images = torch.clamp(perturbation, -0.3, 0.3) + x
-            adv_images = torch.clamp(adv_images, self.box_min, self.box_max)
-
             self.optimizer_D.zero_grad()
             pred_real = self.netDisc(x)
             loss_D_real = F.mse_loss(pred_real, torch.ones_like(pred_real, device=self.device))
@@ -87,23 +128,17 @@ class AdvGAN_Attack:
             # calculate perturbation norm
             C = 0.1
             loss_perturb = torch.mean(torch.norm(perturbation.view(perturbation.shape[0], -1), 2, dim=1))
-            # loss_perturb = torch.max(loss_perturb - C, torch.zeros(1, device=self.device))
 
-            # cal adv loss
-            logits_model = self.model(adv_images)
-            probs_model = F.softmax(logits_model, dim=1)
-            onehot_labels = torch.eye(self.model_num_labels, device=self.device)[labels]
+            # 1 - image similarity
+            # TODO apply image back to original image
+            # ex. perturbed_original = (adv_images patched onto the original image)
+            # Clamp it
+            # perform face swap with the images
 
-            # C&W loss function
-            real = torch.sum(onehot_labels * probs_model, dim=1)
-            other, _ = torch.max((1 - onehot_labels) * probs_model - onehot_labels * 10000, dim=1)
-            zeros = torch.zeros_like(other)
-            loss_adv = torch.max(real - other, zeros)
-            loss_adv = torch.sum(loss_adv)
 
-            # maximize cross_entropy loss
-            # loss_adv = -F.mse_loss(logits_model, onehot_labels)
-            # loss_adv = - F.cross_entropy(logits_model, labels)
+            faked_image = swapfaces(adv_images, base_image)
+            norm_similarity = torch.abs(torch.tensor(1.0) - torch.dot(faked_image, base_image) / torch.dot(base_image, base_image))
+            loss_adv = norm_similarity
 
             adv_lambda = 10
             pert_lambda = 1
@@ -131,11 +166,11 @@ class AdvGAN_Attack:
             loss_perturb_sum = 0
             loss_adv_sum = 0
             for i, data in enumerate(train_dataloader, start=0):
-                images, labels = data
-                images, labels = images.to(self.device), labels.to(self.device)
+                images = data
+                images = images.to(self.device)
 
                 loss_D_batch, loss_G_fake_batch, loss_perturb_batch, loss_adv_batch = \
-                    self.train_batch(images, labels)
+                    self.train_batch(images)
                 loss_D_sum += loss_D_batch
                 loss_G_fake_sum += loss_G_fake_batch
                 loss_perturb_sum += loss_perturb_batch

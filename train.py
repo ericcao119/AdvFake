@@ -7,6 +7,7 @@ import numpy as np
 
 import torchvision
 from torchvision import datasets
+import torchvision.transforms as transforms
 import os
 import random
 from os import listdir
@@ -50,7 +51,9 @@ class ImageFolderWithPaths(datasets.ImageFolder):
 
 
 # instantiate the dataset and dataloader
-train_dataset = ImageFolderWithPaths(root=TRAIN_DATA_DIR)  # our custom dataset
+train_dataset = ImageFolderWithPaths(
+    root=TRAIN_DATA_DIR, transform=transforms.Compose([transforms.ToTensor()])
+)
 dataloader = DataLoader(train_dataset, batch_size=64, num_workers=1, shuffle=True)
 
 test_dataset = torchvision.ImageFolderWithPaths(
@@ -206,7 +209,7 @@ class AdvGAN_Attack:
             loss_perturb_sum = 0
             loss_adv_sum = 0
             for i, data in enumerate(train_dataloader, start=0):
-                (images, paths) = data
+                (images, _, paths) = data
                 images = images.to(self.device)
 
                 (

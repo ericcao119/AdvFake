@@ -1,0 +1,1 @@
+FACESWAP_PATH = "~/Tools/faceswap"

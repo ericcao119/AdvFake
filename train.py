@@ -30,6 +30,8 @@ class ImageFolderWithPaths(datasets.ImageFolder):
         path = self.imgs[index][0]
         # make a new tuple that includes original and the path
         tuple_with_path = original_tuple + (path,)
+
+        # TODO Add alignments here
         return tuple_with_path
 
 

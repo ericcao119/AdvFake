@@ -19,6 +19,23 @@ from models.generator import Generator
 from models.discriminator import Discriminator
 
 
+# x (unprotectected image) -> y (deep fake)
+# x_ = x + perturb (protected) -> y_ (deepfake)
+# We want y - y_ to be large
+
+# Input:
+# - 1 target video (protect)
+# - >5 attack videos (faces are copied from this)
+# - set aside 1 attack video for validation
+#
+# Precompute:
+# - Deepfake for each of 5 attack on target video (data/results/train/video_name_{frame}_target_video_{frame}.jpg)
+# - Precompute 256x256 face centered    (data/train/video_name/*.jpg)
+# - alignments (data/alignments/video_name/*.json)
+# - base images (data/base_images/train/*.jpg)
+
+
+
 class ImageFolderWithPaths(datasets.ImageFolder):
     """Custom dataset that includes image file paths. Extends
     torchvision.datasets.ImageFolder
@@ -46,8 +63,8 @@ class ImageFolderWithPaths(datasets.ImageFolder):
         align_tuple = (x,y,h,w)
         tuple_with_path_alignment = tuple_with_path + (align_tuple,)
 
-
-        return
+        ret_tuple = (tuple_with_path_alignment[0], tuple_with_path_alignment[2], tuple_with_path_alignment[3])
+        return ret_tuple
 
 
 # instantiate the dataset and dataloader
@@ -63,25 +80,18 @@ test_dataset = torchvision.ImageFolderWithPaths(
 models_path = "./models/instances"
 
 
-def swapfaces(original_image, base_image):
+def swapfaces(original_image):
     """TODO create temporary folder for single input image. One for extracted faces, one for the image to patch, and one for the new complete output
     Apply face to base_image with extract and convert from model
     """
+    # pick attacker image
+    # faceswap convert
+
 
 
 def cropped_image(original_image, image_name):
     #TODO: Do we need to change this to a tensor?
     return torch.from_numpy(v2.imread(BASE_IMAGE_DIR + image_name, cv2.IMREAD_UNCHANGED))
-
-
-def random_image(face):
-    def training_set():
-        # Get training data in sorted filepath form
-        train_path = TRAIN_DATA_DIR
-        data = sorted([f for f in listdir(train_path) if isfile(join(train_path, f))])
-        return data
-
-    return random.choice(training_set())
 
 
 # custom weights initialization called on netG and netD
@@ -120,17 +130,21 @@ class AdvGAN_Attack:
         if not os.path.exists(models_path):
             os.makedirs(models_path)
 
-    def train_batch(self, original_image):
+    def train_batch(self, x, path, alignment):
         """x is the large not cropped face. TODO find a way to associate image with the image it came from (see if we can do it by filename)"""
-        x = cropped_image(original_image, image_name)  # TODO pass image name
+        # x is the cropped 256x256 to perturb
 
         # optimize D
         perturbation = self.netG(x)
-        base_image = random_image()  # Image to apply face to
 
         # add a clipping trick
         adv_images = torch.clamp(perturbation, -0.3, 0.3) + x
-        adv_images = torch.clamp(adv_images, self.box_min, self.box_max)
+        adv_images = torch.clamp(adv_images, self.box_min, self.box_max)    # 256 x 256
+
+        original_deepfake = y = ... # TODO load image
+
+        # apply the adversarial image
+        protected_image = compose(adv_images, path, alignment)     # TODO: Original image size
 
         for i in range(1):
             self.optimizer_D.zero_grad()
@@ -171,12 +185,12 @@ class AdvGAN_Attack:
             # Clamp it
             # perform face swap with the images
 
-            faked_image = swapfaces(adv_images, base_image)
-            norm_similarity = torch.abs(
-                torch.tensor(1.0)
-                - torch.dot(faked_image, base_image) / torch.dot(base_image, base_image)
-            )
+            # Need to see how it affects the 
+
+            y_ = swapfaces(protected_image)
+            norm_similarity = torch.abs(torch.dot(torch.norm(y_, 2), torch.norm(original_deepfake, 2)))
             loss_adv = norm_similarity
+            loss_adv.backward() # retain graph
 
             adv_lambda = 10
             pert_lambda = 1
@@ -238,6 +252,9 @@ class AdvGAN_Attack:
             )
 
             # save generator
-            if epoch % 20 == 0:
+            if epoch % 5 == 0:
                 netG_file_name = models_path + "netG_epoch_" + str(epoch) + ".pth"
                 torch.save(self.netG.state_dict(), netG_file_name)
+
+                netD_file_name = models_path + "netD_epoch_" + str(epoch) + ".pth"
+                torch.save(self.netD.state_dict(), netD_file_name)

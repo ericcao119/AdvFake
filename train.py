@@ -33,6 +33,27 @@ from models.discriminator import Discriminator
 # - Precompute 256x256 face centered    (data/train/video_name/*.jpg)
 # - alignments (data/alignments/video_name/*.json)
 # - base images (data/base_images/train/*.jpg)
+#Folder Structure:
+#data
+#   - base_images
+#         - train
+#             -video_name
+#                 -image_name
+#         - valid
+#             -video_name
+#                 -image_name
+#     - face_centered
+#         -train
+#             -video_name
+#                 -image_name
+#         -valid
+#             -video_name
+#                 -image_name
+#     -alignments
+#         -video_name
+#             -json file mapping common file name to a dict with x,y,w,h of the face alignment box
+# #ASSUMPTION: The image name within each subdirectory is standardized and the same throughout
+
 
 
 
@@ -185,7 +206,7 @@ class AdvGAN_Attack:
             # Clamp it
             # perform face swap with the images
 
-            # Need to see how it affects the 
+            # Need to see how it affects the
 
             y_ = swapfaces(protected_image)
             norm_similarity = torch.abs(torch.dot(torch.norm(y_, 2), torch.norm(original_deepfake, 2)))

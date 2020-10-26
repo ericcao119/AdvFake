@@ -247,7 +247,7 @@ class AdvGAN_Attack:
             loss_G_fake_sum = 0
             loss_perturb_sum = 0
             loss_adv_sum = 0
-            for i, data in tqdm(enumerate(range(10000), start=0)):
+            for i, data in tqdm(enumerate(range(5000), start=0)):
                 noise = torch.randn(64, 100, 1, 1, device=self.device)
 
                 # (images, _, paths) = data

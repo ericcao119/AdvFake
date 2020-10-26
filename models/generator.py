@@ -19,30 +19,30 @@ class Generator(nn.Module):
             nn.InstanceNorm2d(16),
             nn.ReLU(),
             # 16*12*12
-            nn.Conv2d(16, 32, kernel_size=3, stride=2, padding=0, bias=True),
-            nn.InstanceNorm2d(32),
-            nn.ReLU(),
+            # nn.Conv2d(16, 32, kernel_size=3, stride=2, padding=0, bias=True),
+            # nn.InstanceNorm2d(32),
+            # nn.ReLU(),
             # 32*5*5
         ]
 
         bottle_neck_lis = [
-            ResnetBlock(32),
-            ResnetBlock(32),
-            ResnetBlock(32),
-            ResnetBlock(32),
+            ResnetBlock(16),
+            # ResnetBlock(32),
+            # ResnetBlock(32),
+            # ResnetBlock(32),
         ]
 
         decoder_lis = [
-            nn.ConvTranspose2d(32, 16, kernel_size=3, stride=2, padding=0, bias=False),
-            nn.InstanceNorm2d(16),
-            nn.ReLU(),
+            # nn.ConvTranspose2d(32, 16, kernel_size=3, stride=2, padding=0, bias=False),
+            # nn.InstanceNorm2d(16),
+            # nn.ReLU(),
             # state size. 16 x 11 x 11
             nn.ConvTranspose2d(16, 8, kernel_size=3, stride=2, padding=0, bias=False),
             nn.InstanceNorm2d(8),
             nn.ReLU(),
             # state size. 8 x 23 x 23
             nn.ConvTranspose2d(
-                8, image_nc, kernel_size=6, stride=1, padding=0, bias=False
+                8, image_nc, kernel_size=4, stride=1, padding=0, bias=False
             ),
             nn.Tanh()
             # state size. image_nc x 28 x 28

@@ -17,6 +17,9 @@ from config import FACE_BOXES_JSON, TEST_DATA_DIR, TRAIN_DATA_DIR
 
 from models.generator import Generator
 from models.discriminator import Discriminator
+from models.model import Target
+
+from tqdm import tqdm
 
 
 # x (unprotectected image) -> y (deep fake)
@@ -57,46 +60,46 @@ from models.discriminator import Discriminator
 
 
 
-class ImageFolderWithPaths(datasets.ImageFolder):
-    """Custom dataset that includes image file paths. Extends
-    torchvision.datasets.ImageFolder
-    """
-    # override the __getitem__ method. this is the method that dataloader calls
-    def __getitem__(self, index):
-        # this is what ImageFolder normally returns
-        original_tuple = super(ImageFolderWithPaths, self).__getitem__(index)
-        # the image file path
-        path = self.imgs[index][0]
-        # make a new tuple that includes original and the path
-        tuple_with_path = original_tuple + (path,)
+# class ImageFolderWithPaths(datasets.ImageFolder):
+#     """Custom dataset that includes image file paths. Extends
+#     torchvision.datasets.ImageFolder
+#     """
+#     # override the __getitem__ method. this is the method that dataloader calls
+#     def __getitem__(self, index):
+#         # this is what ImageFolder normally returns
+#         original_tuple = super(ImageFolderWithPaths, self).__getitem__(index)
+#         # the image file path
+#         path = self.imgs[index][0]
+#         # make a new tuple that includes original and the path
+#         tuple_with_path = original_tuple + (path,)
 
-        last_slash = path.rindex('/')
-        base_path = path[:last_slash]
+#         last_slash = path.rindex('/')
+#         base_path = path[:last_slash]
 
-        #Obtain alignments - requires the alignment json file located in {dfd,fs}_frames_centered_cropped to be put in path specified in config.py
-        with open(FACE_BOXES_JSON) as f:
-            data = json.load(f)
-        image_name = path.split('/')[-1]
-        x = data[image_name]['x']
-        y = data[image_name]['y']
-        h = data[image_name]['h']
-        w = data[image_name]['w']
-        align_tuple = (x,y,h,w)
-        tuple_with_path_alignment = tuple_with_path + (align_tuple,)
+#         #Obtain alignments - requires the alignment json file located in {dfd,fs}_frames_centered_cropped to be put in path specified in config.py
+#         with open(FACE_BOXES_JSON) as f:
+#             data = json.load(f)
+#         image_name = path.split('/')[-1]
+#         x = data[image_name]['x']
+#         y = data[image_name]['y']
+#         h = data[image_name]['h']
+#         w = data[image_name]['w']
+#         align_tuple = (x,y,h,w)
+#         tuple_with_path_alignment = tuple_with_path + (align_tuple,)
 
-        ret_tuple = (tuple_with_path_alignment[0], tuple_with_path_alignment[2], tuple_with_path_alignment[3])
-        return ret_tuple
+#         ret_tuple = (tuple_with_path_alignment[0], tuple_with_path_alignment[2], tuple_with_path_alignment[3])
+#         return ret_tuple
 
 
-# instantiate the dataset and dataloader
-train_dataset = ImageFolderWithPaths(
-    root=TRAIN_DATA_DIR, transform=transforms.Compose([transforms.ToTensor()])
-)
-dataloader = DataLoader(train_dataset, batch_size=64, num_workers=1, shuffle=True)
+# # instantiate the dataset and dataloader
+# train_dataset = ImageFolderWithPaths(
+#     root=TRAIN_DATA_DIR, transform=transforms.Compose([transforms.ToTensor()])
+# )
+# dataloader = DataLoader(train_dataset, batch_size=64, num_workers=1, shuffle=True)
 
-test_dataset = torchvision.ImageFolderWithPaths(
-    root=TEST_DATA_DIR, transform=torchvision.transforms.ToTensor()
-)
+# test_dataset = torchvision.ImageFolderWithPaths(
+#     root=TEST_DATA_DIR, transform=torchvision.transforms.ToTensor()
+# )
 
 models_path = "./models/instances"
 
@@ -124,12 +127,11 @@ def weights_init(m):
         nn.init.normal_(m.weight.data, 1.0, 0.02)
         nn.init.constant_(m.bias.data, 0)
 
-
 class AdvGAN_Attack:
-    def __init__(self, device, model, image_nc, box_min, box_max):
+    def __init__(self, device, target, image_nc, box_min=0, box_max=1):
         output_nc = image_nc
         self.device = device
-        self.model = model
+        self.target = target
         self.input_nc = image_nc
         self.output_nc = output_nc
 
@@ -148,28 +150,30 @@ class AdvGAN_Attack:
         self.optimizer_G = torch.optim.Adam(self.netG.parameters(), lr=0.001)
         self.optimizer_D = torch.optim.Adam(self.netDisc.parameters(), lr=0.001)
 
+
         if not os.path.exists(models_path):
             os.makedirs(models_path)
 
-    def train_batch(self, x, path, alignment):
+    def train_batch(self, x):
         """x is the large not cropped face. TODO find a way to associate image with the image it came from (see if we can do it by filename)"""
         # x is the cropped 256x256 to perturb
 
         # optimize D
-        perturbation = self.netG(x)
+        x_image = x.reshape((64, 1, 10, 10))
+        perturbation = self.netG(x_image)
+
+        image = self.target(x)
 
         # add a clipping trick
-        adv_images = torch.clamp(perturbation, -0.3, 0.3) + x
+        adv_images = torch.clamp(perturbation, -0.3, 0.3) + x_image
         adv_images = torch.clamp(adv_images, self.box_min, self.box_max)    # 256 x 256
 
-        original_deepfake = y = ... # TODO load image
-
         # apply the adversarial image
-        protected_image = compose(adv_images, path, alignment)     # TODO: Original image size
+        protected_image = adv_images     # TODO: Original image size
 
         for i in range(1):
             self.optimizer_D.zero_grad()
-            pred_real = self.netDisc(x)
+            pred_real = self.netDisc(x_image)
             loss_D_real = F.mse_loss(
                 pred_real, torch.ones_like(pred_real, device=self.device)
             )
@@ -208,10 +212,10 @@ class AdvGAN_Attack:
 
             # Need to see how it affects the
 
-            y_ = swapfaces(protected_image)
-            norm_similarity = torch.abs(torch.dot(torch.norm(y_, 2), torch.norm(original_deepfake, 2)))
+            y_ = self.target(protected_image.reshape((64, 100, 1, 1)))
+            norm_similarity = torch.abs(torch.dot(torch.flatten(y_ / torch.norm(y_, 2)), torch.flatten(image / torch.norm(image, 2))))
             loss_adv = norm_similarity
-            loss_adv.backward() # retain graph
+            loss_adv.backward(retain_graph=True) # retain graph
 
             adv_lambda = 10
             pert_lambda = 1
@@ -227,7 +231,7 @@ class AdvGAN_Attack:
         )
 
     def train(self, train_dataloader, epochs):
-        for epoch in range(1, epochs + 1):
+        for epoch in tqdm(range(1, epochs + 1)):
 
             if epoch == 50:
                 self.optimizer_G = torch.optim.Adam(self.netG.parameters(), lr=0.0001)
@@ -243,16 +247,21 @@ class AdvGAN_Attack:
             loss_G_fake_sum = 0
             loss_perturb_sum = 0
             loss_adv_sum = 0
-            for i, data in enumerate(train_dataloader, start=0):
-                (images, _, paths) = data
-                images = images.to(self.device)
+            for i, data in tqdm(enumerate(range(10000), start=0)):
+                if i % 10 == 0:
+                    print(f"Idx: {i}")
+
+                noise = torch.randn(64, 100, 1, 1, device=self.device)
+
+                # (images, _, paths) = data
+                # images = images.to(self.device)
 
                 (
                     loss_D_batch,
                     loss_G_fake_batch,
                     loss_perturb_batch,
                     loss_adv_batch,
-                ) = self.train_batch(images)
+                ) = self.train_batch(noise)
                 loss_D_sum += loss_D_batch
                 loss_G_fake_sum += loss_G_fake_batch
                 loss_perturb_sum += loss_perturb_batch

@@ -284,4 +284,4 @@ class AdvGAN_Attack:
                 torch.save(self.netG.state_dict(), netG_file_name)
 
                 netD_file_name = models_path + "netD_epoch_" + str(epoch) + ".pth"
-                torch.save(self.netD.state_dict(), netD_file_name)
+                torch.save(self.netDisc.state_dict(), netD_file_name)
